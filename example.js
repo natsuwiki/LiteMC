@@ -2,7 +2,7 @@
  * Litemc 示例脚本
  */
 //---启动时的必要脚本---
-const litemc = require('./src/index')
+const litemc = require('litemc')
 
 // 创建 Bot 实例
 const bot = litemc.createBot({
