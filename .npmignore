@@ -1,0 +1,19 @@
+# 开发文件
+.kiro/
+node_modules/
+auth/
+
+# Git 文件
+.git/
+.gitignore
+
+# 编辑器
+.vscode/
+.idea/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 测试文件
+test.js
