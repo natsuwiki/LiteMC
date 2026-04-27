@@ -3,6 +3,9 @@
   "version": "1.3.0",
   "description": "轻量级 Minecraft Bot 框架，专注于聊天与连接，无三维功能负担",
   "main": "src/index.js",
+  "files": [
+    "src"
+  ],
   "scripts": {
     "test": "echo \"No tests specified\" && exit 0"
   },
