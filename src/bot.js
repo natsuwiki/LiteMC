@@ -1,6 +1,5 @@
 const mc = require('minecraft-protocol')
 const { EventEmitter } = require('events')
-const Registry = require('prismarine-registry')
 const { buildAuthOptions } = require('./auth')
 
 const VERSION = '1.3.0'
@@ -16,7 +15,14 @@ class LiteMcBot extends EventEmitter {
       host: config.host,
       port: config.port ?? 25565,
       version: config.version ?? false,
-      hideErrors: config.hideErrors ?? false
+      hideErrors: config.hideErrors ?? false,
+      // 聊天型 Bot 默认只请求最小视距，降低世界数据压力
+      viewDistance: config.viewDistance ?? 1,
+      simulationDistance: config.simulationDistance ?? 1,
+      // 聊天型 Bot 默认不加载 registry，减少不必要的世界数据处理
+      loadRegistry: config.loadRegistry ?? false,
+      // 默认仅上报协议解析错误，不强制断线；如需硬断开可在脚本中显式开启
+      disconnectOnProtocolError: config.disconnectOnProtocolError ?? false
     }
 
     this._client = null
@@ -25,6 +31,7 @@ class LiteMcBot extends EventEmitter {
     this._didEmitLogin = false
     this._lastKeepAliveTime = null
     this._entityId = null
+    this._pendingPingCheck = null
 
     this.username = null
     this.ping = null
@@ -36,6 +43,7 @@ class LiteMcBot extends EventEmitter {
     this._plugins = new Map()
 
     this._setupLitemcCommandHandler()
+    this._setupPingCheckHandler()
     this._setupConsoleInput()
   }
 
@@ -145,20 +153,67 @@ class LiteMcBot extends EventEmitter {
     })
   }
 
+  _setupPingCheckHandler () {
+    this.on('ping_check', async () => {
+      try {
+        await this.checkPing()
+      } catch (err) {
+        this.emit('error', err)
+      }
+    })
+  }
+
   _detectLitemcCommand (text) {
     if (!text || typeof text !== 'string') return false
     return text.toLowerCase().includes('!litemc')
   }
 
-  _handleLitemcCommand () {
+  async _handleLitemcCommand () {
     if (!this._connected || !this._client) return
 
     const version = this._serverVersion ?? this._client.version ?? 'Null'
     const username = this.username ?? 'Null'
-    const ping = this.ping ?? 'Null'
+    let ping = this.ping ?? 'Null'
+
+    try {
+      ping = await this.checkPing(5000)
+    } catch {}
 
     const response = `[LiteMC] ${version} Litemc@${username} ONEGAME ping=${ping}ms`
     this.chat(response)
+  }
+
+  checkPing (timeoutMs = 10000) {
+    if (!this._connected || !this._client) {
+      return Promise.reject(new Error('[Litemc] Bot is not connected to the server'))
+    }
+
+    // 避免并发测量导致结果混乱：同一时刻只允许一个检测
+    if (this._pendingPingCheck?.promise) {
+      return this._pendingPingCheck.promise
+    }
+
+    const startedAt = Date.now()
+    let timer = null
+
+    const promise = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        if (this._pendingPingCheck?.startedAt !== startedAt) return
+        this._pendingPingCheck = null
+        reject(new Error('[Litemc] Ping check timeout'))
+      }, Math.max(1000, Number(timeoutMs) || 10000))
+
+      this._pendingPingCheck = {
+        startedAt,
+        resolve,
+        reject,
+        timer,
+        promise: null
+      }
+    })
+
+    this._pendingPingCheck.promise = promise
+    return promise
   }
 
   connect () {
@@ -222,12 +277,17 @@ class LiteMcBot extends EventEmitter {
       this._serverVersion = serverVersion
       console.log('[Litemc] Server version:', serverVersion)
 
-      this.registry = Registry(serverVersion)
+      if (this.config.loadRegistry) {
+        const Registry = require('prismarine-registry')
+        this.registry = Registry(serverVersion)
 
-      if (!this.registry?.version) {
-        console.warn(`[Litemc] Warning: incomplete registry data for version '${serverVersion}'`)
+        if (!this.registry?.version) {
+          console.warn(`[Litemc] Warning: incomplete registry data for version '${serverVersion}'`)
+        } else {
+          console.log('[Litemc] Registry loaded, MC version:', this.registry.version.minecraftVersion)
+        }
       } else {
-        console.log('[Litemc] Registry loaded, MC version:', this.registry.version.minecraftVersion)
+        this.registry = null
       }
     } catch (err) {
       console.error('[Litemc] Version setup failed:', err.message)
@@ -330,6 +390,7 @@ class LiteMcBot extends EventEmitter {
 
     client.on('registry_data', (packet) => {
       if (!isCurrentClient()) return
+      if (!this.config.loadRegistry) return
 
       try {
         if (this.registry?.loadDimensionCodec) {
@@ -356,19 +417,27 @@ class LiteMcBot extends EventEmitter {
     client.on('keep_alive', () => {
       if (!isCurrentClient()) return
 
+      if (!this._pendingPingCheck) return
+
       const now = Date.now()
+      const ping = now - this._pendingPingCheck.startedAt
+      this.ping = ping
 
-      // 计算与上次 keep-alive 的间隔作为延迟
-      if (this._lastKeepAliveTime) {
-        this.ping = now - this._lastKeepAliveTime
-        this.emit('ping', this.ping)
-      }
-
-      this._lastKeepAliveTime = now
+      clearTimeout(this._pendingPingCheck.timer)
+      this._pendingPingCheck.resolve(ping)
+      this._pendingPingCheck = null
+      this.emit('ping', ping)
     })
 
     client.on('error', (err) => {
       if (!isCurrentClient()) return
+
+      if (this._shouldHardDisconnectOnError(err)) {
+        this.emit('error', err)
+        this._hardDisconnectOnProtocolError(client, err)
+        return
+      }
+
       this.emit('error', err)
     })
 
@@ -398,6 +467,35 @@ class LiteMcBot extends EventEmitter {
     return this._client === client && this._connectionSerial === connectionSerial
   }
 
+  _shouldHardDisconnectOnError (err) {
+    if (!this.config.disconnectOnProtocolError || !err) return false
+
+    const msg = String(err.message ?? err)
+    return (
+      msg.includes('Parse error') ||
+      msg.includes('partial packet') ||
+      msg.includes('Chunk size is')
+    )
+  }
+
+  _hardDisconnectOnProtocolError (client, err) {
+    if (this._client !== client) return
+
+    const reason = 'protocol_parse_error'
+    const shortMsg = String(err?.message ?? err).slice(0, 240)
+    console.error(`[Litemc] Fatal protocol parse error, force disconnecting: ${shortMsg}`)
+
+    this._client = null
+    this._resetConnectionState()
+
+    // 先正常结束，再强制 destroy，尽快释放流与缓冲
+    try { client.end(reason) } catch {}
+    try { client.socket?.destroy() } catch {}
+
+    this.emit('kicked', reason)
+    this.emit('end', reason)
+  }
+
   _resetConnectionState () {
     this._connected = false
     this._didEmitLogin = false
@@ -405,6 +503,12 @@ class LiteMcBot extends EventEmitter {
     this._lastKeepAliveTime = null
     this._entityId = null
     this._serverVersion = null
+
+    if (this._pendingPingCheck) {
+      clearTimeout(this._pendingPingCheck.timer)
+      this._pendingPingCheck.reject(new Error('[Litemc] Ping check canceled: disconnected'))
+      this._pendingPingCheck = null
+    }
   }
 
   _handleChatPacket (raw, payload = raw) {
@@ -496,9 +600,13 @@ class LiteMcBot extends EventEmitter {
 
   _sendClientSettings (client = this._client) {
     try {
+      const viewDistance = Math.max(1, Number(this.config.viewDistance) || 1)
+      const simulationDistance = Math.max(1, Number(this.config.simulationDistance) || viewDistance)
+
       client.write('settings', {
         locale: 'en_US',
-        viewDistance: 10,
+        viewDistance,
+        simulationDistance,
         chatFlags: 0,
         chatColors: true,
         skinParts: 0x7f,

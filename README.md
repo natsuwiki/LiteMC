@@ -74,6 +74,11 @@ node index.js
 | `autoConnect` | boolean | `true` | 是否立即连接 |
 | `profilesFolder` | string | `'./auth'` | 认证缓存文件夹路径 |
 | `onMsaCode` | function | — | Microsoft 登录回调（可选） |
+| `viewDistance` | number | `1` | 客户端请求视距（最小 1） |
+| `simulationDistance` | number | `1` | 客户端请求模拟距离（最小 1） |
+| `loadRegistry` | boolean | `false` | 是否加载 registry 维度编解码数据 |
+| `disconnectOnProtocolError` | boolean | `false` | 协议解析错误时是否强制断开 |
+| `hideErrors` | boolean | `false` | 是否隐藏底层协议错误输出 |
 
 ---
 
@@ -88,6 +93,10 @@ node index.js
 #### `bot.chat(message)`
 发送聊天消息。
 
+#### `bot.checkPing([timeoutMs])`
+按需检测一次延迟并返回 Promise，超时会抛错。  
+示例：`const ms = await bot.checkPing(5000)`
+
 ---
 
 ### Bot 事件
@@ -97,7 +106,8 @@ node index.js
 | `connect` | — | TCP 连接建立 |
 | `login` | `{ username, entityId }` | 登录完成，可以发消息 |
 | `message` | `(raw, payload)` | 收到聊天消息，raw 为原始数据，payload 包含发送者信息 |
-| `ping` | `(ms)` | 延迟更新（毫秒） |
+| `ping` | `(ms)` | 当触发一次 ping 检测后返回结果（毫秒） |
+| `ping_check` | — | 触发一次按需 ping 检测 |
 | `death` | — | Bot 死亡（框架自动重生） |
 | `respawn` | — | Bot 重生完成 |
 | `kicked` | `(reason)` | 被踢出服务器 |
@@ -150,7 +160,7 @@ https://www.microsoft.com/link?otc=ABC123
 - ✅ 监听所有聊天消息（玩家聊天 + 系统消息）
 - ✅ 死亡自动重生（控制台打印提示）
 - ✅ 自动接受资源包
-- ✅ 实时延迟检测（`bot.ping`）
+- ✅ 按需延迟检测（`bot.checkPing()` / `ping_check`）
 - ✅ 正版（Microsoft）+ 离线双模式
 - ✅ 支持 1.8 ~ 最新版本协议
 - ✅ 智能认证流程（首次登录稳定，后续快速）
@@ -228,6 +238,32 @@ const bot = litemc.createBot({
 setTimeout(() => {
   bot.connect()
 }, 5000)
+```
+
+### 轻量模式（默认行为）
+
+```js
+const bot = litemc.createBot({
+  username: 'Steve',
+  auth: 'offline',
+  host: 'mc.example.com',
+  // 以下是默认值，可按需覆盖
+  viewDistance: 1,
+  simulationDistance: 1,
+  loadRegistry: false,
+  disconnectOnProtocolError: false
+})
+```
+
+### 按需检测一次 ping
+
+```js
+// 方式 1：直接调用
+const ms = await bot.checkPing(5000)
+console.log('当前延迟:', ms, 'ms')
+
+// 方式 2：事件触发（结果仍通过 ping 事件返回）
+bot.emit('ping_check')
 ```
 
 ---
