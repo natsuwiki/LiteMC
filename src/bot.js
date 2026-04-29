@@ -16,9 +16,10 @@ class LiteMcBot extends EventEmitter {
       port: config.port ?? 25565,
       version: config.version ?? false,
       hideErrors: config.hideErrors ?? false,
-      // 聊天型 Bot 默认只请求最小视距，降低世界数据压力
-      viewDistance: config.viewDistance ?? 1,
-      simulationDistance: config.simulationDistance ?? 1,
+      // 默认视距（以区块计）。用于聊天型 Bot 时会影响需要拉取/模拟的世界数据范围
+      // 兼容参数：新参数 `view` / `sim`，旧参数仍保留（viewDistance / simulationDistance）
+      viewDistance: config.view ?? config.viewDistance ?? 12,
+      simulationDistance: config.sim ?? config.simulationDistance ?? config.view ?? config.viewDistance ?? 12,
       // 聊天型 Bot 默认不加载 registry，减少不必要的世界数据处理
       loadRegistry: config.loadRegistry ?? false,
       // 默认仅上报协议解析错误，不强制断线；如需硬断开可在脚本中显式开启
@@ -600,8 +601,15 @@ class LiteMcBot extends EventEmitter {
 
   _sendClientSettings (client = this._client) {
     try {
-      const viewDistance = Math.max(1, Number(this.config.viewDistance) || 1)
-      const simulationDistance = Math.max(1, Number(this.config.simulationDistance) || viewDistance)
+      // Minecraft 客户端的视距/模拟距离通常在 1-32 范围内；超过范围可能导致协议/性能异常。
+      // 这里对最终写入 settings 的值做兜底裁剪。
+      let viewDistance = Number(this.config.viewDistance)
+      if (!Number.isFinite(viewDistance)) viewDistance = 12
+      viewDistance = Math.min(32, Math.max(1, Math.floor(viewDistance)))
+
+      let simulationDistance = Number(this.config.simulationDistance)
+      if (!Number.isFinite(simulationDistance)) simulationDistance = viewDistance
+      simulationDistance = Math.min(32, Math.max(1, Math.floor(simulationDistance)))
 
       client.write('settings', {
         locale: 'en_US',

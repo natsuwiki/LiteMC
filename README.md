@@ -74,8 +74,8 @@ node index.js
 | `autoConnect` | boolean | `true` | 是否立即连接 |
 | `profilesFolder` | string | `'./auth'` | 认证缓存文件夹路径 |
 | `onMsaCode` | function | — | Microsoft 登录回调（可选） |
-| `viewDistance` | number | `1` | 客户端请求视距（最小 1） |
-| `simulationDistance` | number | `1` | 客户端请求模拟距离（最小 1） |
+| `view` | number | `12` | 客户端请求视距（范围 1-32） |
+| `sim` | number | `12` | 客户端请求模拟距离（范围 1-32） |
 | `loadRegistry` | boolean | `false` | 是否加载 registry 维度编解码数据 |
 | `disconnectOnProtocolError` | boolean | `false` | 协议解析错误时是否强制断开 |
 | `hideErrors` | boolean | `false` | 是否隐藏底层协议错误输出 |
@@ -248,8 +248,8 @@ const bot = litemc.createBot({
   auth: 'offline',
   host: 'mc.example.com',
   // 以下是默认值，可按需覆盖
-  viewDistance: 1,
-  simulationDistance: 1,
+  view: 12,
+  sim: 12,
   loadRegistry: false,
   disconnectOnProtocolError: false
 })

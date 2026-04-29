@@ -11,7 +11,9 @@ const bot = litemc.createBot({
   host: 'yourserverIP',                   // 服务器地址：填写服务器 IP 或域名
   port: 25565,                         // 服务器端口：默认 25565
   version: '1.21.11',                   // Minecraft 版本：不填则自动协商
-  autoConnect: true                    // 是否自动连接：默认 true，设为 false 则手动调用 bot.connect()
+  autoConnect: true,                    // 是否自动连接：默认 true，设为 false 则手动调用 bot.connect()
+  view: 12,                            //最大视距(默认12，范围1~32)
+  sim: 12                              //最大模拟距离(默认12，范围1~32)
 })
 
 //---以下为可选脚本---
