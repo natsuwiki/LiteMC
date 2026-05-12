@@ -79,6 +79,9 @@ node index.js
 | `loadRegistry` | boolean | `false` | 是否加载 registry 维度编解码数据 |
 | `disconnectOnProtocolError` | boolean | `false` | 协议解析错误时是否强制断开 |
 | `hideErrors` | boolean | `false` | 是否隐藏底层协议错误输出 |
+| `keepAliveTimeout` | number | `60000` | keep_alive 超时时间（毫秒），默认 60 秒，避免网络波动导致误断开 |
+| `reconnect` | number | `0` | 断线自动重连次数，`0` 表示不重连 |
+| `reconnectInterval` | number | `5000` | 重连间隔（毫秒） |
 
 ---
 
@@ -265,6 +268,30 @@ console.log('当前延迟:', ms, 'ms')
 // 方式 2：事件触发（结果仍通过 ping 事件返回）
 bot.emit('ping_check')
 ```
+
+---
+
+## 断线自动重连
+
+Bot 支持断线自动重连，适用于网络不稳定或服务器重启的场景。
+
+```js
+const bot = litemc.createBot({
+  username: 'Steve',
+  auth: 'offline',
+  host: 'mc.example.com',
+  keepAliveTimeout: 90000,   // 90 秒 keep_alive 超时（默认 60 秒）
+  reconnect: 5,              // 最多重连 5 次（0 = 不重连）
+  reconnectInterval: 10000   // 每次重连间隔 10 秒
+})
+```
+
+**说明：**
+- `keepAliveTimeout`：底层 `minecraft-protocol` 默认 30 秒超时，框架已改为 60 秒。高延迟或不稳定环境建议适当增大。
+- `reconnect`：设置为 `0`（默认）表示不自动重连。
+- 主动调用 `bot.disconnect()` 不会触发重连。
+- 每次成功登录后，重连计数器自动归零。
+- 重连期间会触发 `reconnecting` 日志输出，登录成功后继续正常使用。
 
 ---
 

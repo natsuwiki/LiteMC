@@ -2,7 +2,7 @@ const mc = require('minecraft-protocol')
 const { EventEmitter } = require('events')
 const { buildAuthOptions } = require('./auth')
 
-const VERSION = '1.3.0'
+const VERSION = '1.0.8'
 
 class LiteMcBot extends EventEmitter {
   constructor (config) {
@@ -23,8 +23,19 @@ class LiteMcBot extends EventEmitter {
       // 聊天型 Bot 默认不加载 registry，减少不必要的世界数据处理
       loadRegistry: config.loadRegistry ?? false,
       // 默认仅上报协议解析错误，不强制断线；如需硬断开可在脚本中显式开启
-      disconnectOnProtocolError: config.disconnectOnProtocolError ?? false
+      disconnectOnProtocolError: config.disconnectOnProtocolError ?? false,
+      // keep_alive 超时时间（毫秒），默认 60 秒，避免网络波动导致误断开
+      keepAliveTimeout: config.keepAliveTimeout ?? 60000,
+      // 断线自动重连：关闭或设置重试次数（0 = 不重连）
+      reconnect: config.reconnect ?? 0,
+      // 重连间隔（毫秒）
+      reconnectInterval: config.reconnectInterval ?? 5000
     }
+
+    // 重连相关状态
+    this._reconnectAttempt = 0
+    this._reconnectTimer = null
+    this._intentionalDisconnect = false
 
     this._client = null
     this._connectionSerial = 0
@@ -222,6 +233,9 @@ class LiteMcBot extends EventEmitter {
       throw new Error('[Litemc] Bot is already connecting or connected')
     }
 
+    // 重连时需要重置此标记，否则无法正常建立连接
+    this._intentionalDisconnect = false
+
     const authOpts = buildAuthOptions(this.config)
     const clientOpts = {
       ...authOpts,
@@ -229,7 +243,9 @@ class LiteMcBot extends EventEmitter {
       port: this.config.port,
       version: this.config.version || false,
       validateChannelProtocol: false,
-      hideErrors: this.config.hideErrors
+      hideErrors: this.config.hideErrors,
+      // 将 keepAliveTimeout 传递给 minecraft-protocol，替换默认的 30 秒超时
+      keepAlive: this.config.keepAliveTimeout
     }
 
     const client = mc.createClient(clientOpts)
@@ -244,6 +260,10 @@ class LiteMcBot extends EventEmitter {
   }
 
   disconnect (reason) {
+    // 主动断开，标记不重连
+    this._intentionalDisconnect = true
+    clearTimeout(this._reconnectTimer)
+
     const client = this._client
     if (!client) return
 
@@ -335,6 +355,9 @@ class LiteMcBot extends EventEmitter {
       this.username = client.username ?? this.username ?? this.config.username
       this._entityId = packet.entityId
       this.isAlive = true
+
+      // 登录成功，重置重连计数
+      this._reconnectAttempt = 0
 
       this._sendClientSettings(client)
       this.emit('login', { username: this.username, entityId: packet.entityId })
@@ -447,6 +470,7 @@ class LiteMcBot extends EventEmitter {
       this._client = null
       this._resetConnectionState()
       this.emit('end', reason)
+      this._attemptReconnect('end')
     })
 
     client.on('disconnect', (packet) => {
@@ -454,6 +478,7 @@ class LiteMcBot extends EventEmitter {
       this._client = null
       this._resetConnectionState()
       this.emit('kicked', packet.reason ?? 'disconnect')
+      this._attemptReconnect('disconnect')
     })
 
     client.on('kick_disconnect', (packet) => {
@@ -461,6 +486,7 @@ class LiteMcBot extends EventEmitter {
       this._client = null
       this._resetConnectionState()
       this.emit('kicked', packet.reason ?? 'kicked')
+      this._attemptReconnect('kick')
     })
   }
 
@@ -510,6 +536,43 @@ class LiteMcBot extends EventEmitter {
       this._pendingPingCheck.reject(new Error('[Litemc] Ping check canceled: disconnected'))
       this._pendingPingCheck = null
     }
+  }
+
+  /**
+   * 尝试自动重连
+   * @param {string} reason - 断开原因
+   */
+  _attemptReconnect (reason) {
+    // 主动断开不重连
+    if (this._intentionalDisconnect) return
+
+    const maxReconnect = this.config.reconnect
+    if (!maxReconnect || maxReconnect <= 0) return
+
+    this._reconnectAttempt++
+    if (this._reconnectAttempt > maxReconnect) {
+      console.log(`[Litemc] 已达到最大重连次数 (${maxReconnect})，停止重连`)
+      this._reconnectAttempt = 0
+      return
+    }
+
+    const interval = this.config.reconnectInterval
+    console.log(`[Litemc] 将在 ${interval / 1000} 秒后重连 (第 ${this._reconnectAttempt}/${maxReconnect} 次)，原因: ${reason}`)
+
+    this._reconnectTimer = setTimeout(() => {
+      if (this._intentionalDisconnect) return
+      if (this._client) return
+
+      console.log(`[Litemc] 正在重连... (第 ${this._reconnectAttempt}/${maxReconnect} 次)`)
+      try {
+        this.connect()
+      } catch (err) {
+        console.error('[Litemc] 重连失败:', err.message)
+        this.emit('error', err)
+        // 继续尝试下一次
+        this._attemptReconnect('reconnect_failed')
+      }
+    }, interval)
   }
 
   _handleChatPacket (raw, payload = raw) {
