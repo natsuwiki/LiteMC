@@ -3,6 +3,9 @@
  * 支持正版（Microsoft）和离线模式
  */
 
+const fs = require('fs')
+const path = require('path')
+
 // 清除代理设置
 process.env.NO_PROXY = '*'
 process.env.no_proxy = '*'
@@ -23,15 +26,17 @@ function buildAuthOptions (config) {
   // 正版模式 - 让 minecraft-protocol 内部处理完整认证流程
   // 按用户名 + 实例 ID 隔离 auth folder，支持同账号多开
   // 每个实例有独立的 MSAL token 缓存，避免并发读写冲突和 token 互相失效
-  const path = require('path')
   const safeName = (config.username || 'default').replace(/[^a-zA-Z0-9@._-]/g, '_')
   const botId = config._botId ?? '0'
   const defaultFolder = path.join('./auth', safeName, `bot_${botId}`)
 
+  // 自动迁移：如果新路径无缓存，但旧路径（./auth/）有缓存，自动复制
+  _migrateOldAuthCache(defaultFolder, './auth')
+
   const authOptions = {
     username: config.username,
     auth: 'microsoft',
-    flow: config.flow ?? 'msal',  // 使用 msal 流程，速度快
+    flow: config.flow ?? 'msal',
     forceRefresh: config.forceRefresh ?? false,
     profilesFolder: config.profilesFolder ?? defaultFolder,
     msalConfig: {
@@ -49,7 +54,6 @@ function buildAuthOptions (config) {
   if (config.flow !== undefined) authOptions.flow = config.flow
   if (config.disableChatSigning !== undefined) authOptions.disableChatSigning = config.disableChatSigning
 
-  // 设置默认的 onMsaCode 回调（用于后续登录时token刷新）
   if (!config.onMsaCode) {
     authOptions.onMsaCode = (data) => {
       console.log('\n=== Microsoft 登录 ===')
@@ -64,6 +68,43 @@ function buildAuthOptions (config) {
   }
 
   return authOptions
+}
+
+/**
+ * 自动迁移旧版 auth 缓存到新版路径
+ * @param {string} newFolder - 新的 auth 文件夹路径
+ * @param {string} oldRoot - 旧的 auth 根目录
+ */
+function _migrateOldAuthCache (newFolder, oldRoot) {
+  try {
+    if (fs.existsSync(newFolder) && fs.readdirSync(newFolder).length > 0) {
+      return
+    }
+
+    const oldTokenFile = path.join(oldRoot, 'msa-token-cache.json')
+    if (!fs.existsSync(oldTokenFile)) {
+      return
+    }
+
+    fs.mkdirSync(newFolder, { recursive: true })
+
+    const files = fs.readdirSync(oldRoot)
+    let migrated = 0
+    for (const file of files) {
+      const srcPath = path.join(oldRoot, file)
+      if (fs.statSync(srcPath).isFile()) {
+        fs.copyFileSync(srcPath, path.join(newFolder, file))
+        migrated++
+      }
+    }
+
+    if (migrated > 0) {
+      console.log(`[Litemc] 已自动迁移 ${migrated} 个缓存文件到 ${newFolder}`)
+      console.log(`[Litemc] 旧缓存保留在 ${oldRoot}，可手动删除`)
+    }
+  } catch (err) {
+    console.warn(`[Litemc] 缓存迁移警告: ${err.message}`)
+  }
 }
 
 module.exports = { buildAuthOptions }

@@ -2,7 +2,7 @@ const mc = require('minecraft-protocol')
 const { EventEmitter } = require('events')
 const { buildAuthOptions } = require('./auth')
 
-const VERSION = '1.0.9'
+const VERSION = '1.1.0'
 
 // 全局实例计数器，用于多开 Bot 时分配唯一 ID
 let _globalBotCounter = 0
