@@ -73,7 +73,7 @@ function _printInfo (config) {
   console.log(`${CYAN}游戏版本：${WHITE}${config.version ?? '自动协商'}${RESET}`)
   console.log(`${CYAN}登录方式：${WHITE}${authLabel}${RESET}`)
   console.log(`${CYAN}ID：${WHITE}${displayId}${RESET}`)
-  console.log(`\x1b[2mLitemc v1.3 | github:https://github.com/natsuwiki/LiteMC.git\x1b[0m`)
+  console.log(`\x1b[2mLitemc v${VERSION} | github:https://github.com/natsuwiki/LiteMC.git\x1b[0m`)
   console.log('')
 }
 

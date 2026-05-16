@@ -2,7 +2,35 @@ const mc = require('minecraft-protocol')
 const { EventEmitter } = require('events')
 const { buildAuthOptions } = require('./auth')
 
-const VERSION = '1.2.0'
+/**
+ * 尝试从环境变量自动检测代理，并创建 http agent
+ * 支持 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY 环境变量
+ * @returns {object|null} http agent 或 null
+ */
+function _detectProxyAgent () {
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy ||
+    process.env.HTTP_PROXY || process.env.http_proxy ||
+    process.env.ALL_PROXY || process.env.all_proxy
+
+  if (!proxyUrl) return null
+
+  try {
+    const { HttpsProxyAgent } = require('https-proxy-agent')
+    console.log(`[Litemc] 检测到代理环境变量: ${proxyUrl}`)
+    return new HttpsProxyAgent(proxyUrl)
+  } catch {
+    try {
+      const { HttpProxyAgent } = require('http-proxy-agent')
+      return new HttpProxyAgent(proxyUrl)
+    } catch {
+      console.warn(`[Litemc] 检测到代理环境变量 ${proxyUrl}，但未安装代理依赖包`)
+      console.warn(`[Litemc] 请运行: npm install https-proxy-agent`)
+      return null
+    }
+  }
+}
+
+const VERSION = '1.2.1'
 
 // 全局实例计数器，用于多开 Bot 时分配唯一 ID
 let _globalBotCounter = 0
@@ -254,8 +282,11 @@ class LiteMcBot extends EventEmitter {
       hideErrors: this.config.hideErrors,
       // 将 keepAliveTimeout 传递给 minecraft-protocol，替换默认的 30 秒超时
       keepAlive: this.config.keepAliveTimeout,
-      // 支持代理：用户可通过 config.agent 传入自定义 http agent（如 https-proxy-agent）
-      ...(this.config.agent ? { agent: this.config.agent } : {})
+      // 支持代理：优先使用用户传入的 agent，其次自动检测环境变量代理
+      ...(this.config.agent ? { agent: this.config.agent } : (() => {
+        const autoAgent = _detectProxyAgent()
+        return autoAgent ? { agent: autoAgent } : {}
+      })())
     }
 
     // 多开 Bot 时交错延迟：每个实例间隔 3 秒，避免正版认证并发读写 token 文件冲突
