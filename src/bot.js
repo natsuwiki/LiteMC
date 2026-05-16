@@ -30,7 +30,7 @@ function _detectProxyAgent () {
   }
 }
 
-const VERSION = '1.2.1'
+const VERSION = '1.2.2'
 
 // 全局实例计数器，用于多开 Bot 时分配唯一 ID
 let _globalBotCounter = 0
@@ -286,7 +286,9 @@ class LiteMcBot extends EventEmitter {
       ...(this.config.agent ? { agent: this.config.agent } : (() => {
         const autoAgent = _detectProxyAgent()
         return autoAgent ? { agent: autoAgent } : {}
-      })())
+      })()),
+      // 支持自定义 session server（中国大陆用户可用镜像服务器替换 sessionserver.mojang.com）
+      ...(this.config.sessionServer ? { sessionServer: this.config.sessionServer } : {})
     }
 
     // 多开 Bot 时交错延迟：每个实例间隔 3 秒，避免正版认证并发读写 token 文件冲突
