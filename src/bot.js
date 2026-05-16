@@ -2,7 +2,7 @@ const mc = require('minecraft-protocol')
 const { EventEmitter } = require('events')
 const { buildAuthOptions } = require('./auth')
 
-const VERSION = '1.1.0'
+const VERSION = '1.2.0'
 
 // 全局实例计数器，用于多开 Bot 时分配唯一 ID
 let _globalBotCounter = 0
@@ -253,7 +253,9 @@ class LiteMcBot extends EventEmitter {
       validateChannelProtocol: false,
       hideErrors: this.config.hideErrors,
       // 将 keepAliveTimeout 传递给 minecraft-protocol，替换默认的 30 秒超时
-      keepAlive: this.config.keepAliveTimeout
+      keepAlive: this.config.keepAliveTimeout,
+      // 支持代理：用户可通过 config.agent 传入自定义 http agent（如 https-proxy-agent）
+      ...(this.config.agent ? { agent: this.config.agent } : {})
     }
 
     // 多开 Bot 时交错延迟：每个实例间隔 3 秒，避免正版认证并发读写 token 文件冲突

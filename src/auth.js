@@ -6,12 +6,9 @@
 const fs = require('fs')
 const path = require('path')
 
-// 清除代理设置
-process.env.NO_PROXY = '*'
-process.env.no_proxy = '*'
-
 /**
  * 构建 minecraft-protocol 所需的认证选项
+ * 支持通过 config.agent 传入自定义 http agent（如代理），用于中国大陆等需要代理的网络环境
  * @param {object} config - bot 配置
  * @returns {object} - mc.createClient 所需的选项
  */
