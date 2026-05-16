@@ -295,6 +295,73 @@ const bot = litemc.createBot({
 
 ---
 
+## 多 Bot 同时运行（多开）
+
+框架原生支持多 Bot 同时连接同一服务器，适用于同时运行多个聊天机器人。
+
+### 离线模式多开（最简单）
+
+```js
+const litemc = require('litemc')
+
+const bot1 = litemc.createBot({ username: 'Bot1', auth: 'offline', host: 'mc.example.com', reconnect: 5 })
+const bot2 = litemc.createBot({ username: 'Bot2', auth: 'offline', host: 'mc.example.com', reconnect: 5 })
+const bot3 = litemc.createBot({ username: 'Bot3', auth: 'offline', host: 'mc.example.com', reconnect: 5 })
+```
+
+### 正版模式多开（不同账号）
+
+每个 Bot 使用不同的 Microsoft 账号，框架自动为每个账号分配独立的认证缓存文件夹。
+
+```js
+const bots = [
+  'account1@outlook.com',
+  'account2@outlook.com',
+  'account3@outlook.com'
+]
+
+bots.forEach(email => {
+  litemc.createBot({
+    username: email,
+    auth: 'microsoft',
+    host: 'mc.example.com',
+    reconnect: 3
+  })
+})
+```
+
+### 正版模式多开（同一账号）
+
+同一账号多开时，框架自动为每个 Bot 实例分配独立的认证缓存（`./auth/<username>/bot_1`、`bot_2` ...），并**交错延迟 3 秒**连接，避免并发认证冲突。
+
+**注意：** 首次运行时，每个 Bot 实例都需要独立完成一次 Microsoft 登录授权（共 6 次）。后续运行将自动使用缓存快速登录。
+
+```js
+// 6 个 Bot 使用同一账号连接服务器
+for (let i = 0; i < 6; i++) {
+  litemc.createBot({
+    username: 'your-email@example.com',
+    auth: 'microsoft',
+    host: 'mc.example.com',
+    reconnect: 3,
+    reconnectInterval: 10000
+  })
+}
+// Bot #1 立即连接，Bot #2 等待 3 秒，Bot #3 等待 6 秒 ... Bot #6 等待 15 秒
+```
+
+**认证缓存文件夹结构：**
+```
+./auth/
+  your-email_example.com/    # 按用户名隔离
+    bot_1/                   # Bot 实例 1 的独立 token
+    bot_2/                   # Bot 实例 2 的独立 token
+    ...
+    bot_6/                   # Bot 实例 6 的独立 token
+```
+
+---
+
 ## 常见问题
 
 ### Q: 首次登录时出现连接错误？

@@ -2,11 +2,17 @@ const mc = require('minecraft-protocol')
 const { EventEmitter } = require('events')
 const { buildAuthOptions } = require('./auth')
 
-const VERSION = '1.0.8'
+const VERSION = '1.0.9'
+
+// 全局实例计数器，用于多开 Bot 时分配唯一 ID
+let _globalBotCounter = 0
 
 class LiteMcBot extends EventEmitter {
   constructor (config) {
     super()
+
+    // 为每个实例分配唯一 ID，用于隔离认证缓存
+    const botId = String(++_globalBotCounter)
 
     this.config = {
       ...config,
@@ -29,7 +35,9 @@ class LiteMcBot extends EventEmitter {
       // 断线自动重连：关闭或设置重试次数（0 = 不重连）
       reconnect: config.reconnect ?? 0,
       // 重连间隔（毫秒）
-      reconnectInterval: config.reconnectInterval ?? 5000
+      reconnectInterval: config.reconnectInterval ?? 5000,
+      // 内部实例 ID，用于多开 Bot 时隔离 profilesFolder
+      _botId: botId
     }
 
     // 重连相关状态
@@ -248,14 +256,27 @@ class LiteMcBot extends EventEmitter {
       keepAlive: this.config.keepAliveTimeout
     }
 
-    const client = mc.createClient(clientOpts)
+    // 多开 Bot 时交错延迟：每个实例间隔 3 秒，避免正版认证并发读写 token 文件冲突
+    // 同一账号多开时 Microsoft OAuth 有速率限制，需要充分间隔
+    const botId = this.config._botId ?? '0'
+    const staggerDelay = this.config.auth !== 'offline' ? (Number(botId) - 1) * 3000 : 0
+
     const connectionSerial = ++this._connectionSerial
+    const startClient = () => {
+      const client = mc.createClient(clientOpts)
+      this._client = client
+      this._setupHandlers(client, connectionSerial)
 
-    this._client = client
-    this._setupHandlers(client, connectionSerial)
+      if (!client.wait_connect) {
+        this._onConnectAllowed(client, connectionSerial)
+      }
+    }
 
-    if (!client.wait_connect) {
-      this._onConnectAllowed(client, connectionSerial)
+    if (staggerDelay > 0) {
+      console.log(`[Litemc] 多 Bot 交错连接，等待 ${(staggerDelay / 1000).toFixed(0)} 秒... (Bot #${botId})`)
+      setTimeout(startClient, staggerDelay)
+    } else {
+      startClient()
     }
   }
 
@@ -455,6 +476,15 @@ class LiteMcBot extends EventEmitter {
 
     client.on('error', (err) => {
       if (!isCurrentClient()) return
+
+      const errMsg = String(err?.message ?? err)
+
+      // 检测 profile 获取失败（通常是账号未购买 MC 或多开 token 冲突）
+      if (errMsg.includes('Failed to obtain profile data')) {
+        console.error(`[Litemc] Bot #${this.config._botId}: 认证失败 - 无法获取 profile 数据`)
+        console.error(`[Litemc] 可能原因：1) 该账号未购买 Minecraft Java 版  2) 同一账号多开导致 token 冲突`)
+        console.error(`[Litemc] 多开提示：同一 Microsoft 账号无法同时在多个 Bot 上登录，建议使用不同账号`)
+      }
 
       if (this._shouldHardDisconnectOnError(err)) {
         this.emit('error', err)

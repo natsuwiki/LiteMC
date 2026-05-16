@@ -21,12 +21,19 @@ function buildAuthOptions (config) {
   }
 
   // 正版模式 - 让 minecraft-protocol 内部处理完整认证流程
+  // 按用户名 + 实例 ID 隔离 auth folder，支持同账号多开
+  // 每个实例有独立的 MSAL token 缓存，避免并发读写冲突和 token 互相失效
+  const path = require('path')
+  const safeName = (config.username || 'default').replace(/[^a-zA-Z0-9@._-]/g, '_')
+  const botId = config._botId ?? '0'
+  const defaultFolder = path.join('./auth', safeName, `bot_${botId}`)
+
   const authOptions = {
     username: config.username,
     auth: 'microsoft',
     flow: config.flow ?? 'msal',  // 使用 msal 流程，速度快
     forceRefresh: config.forceRefresh ?? false,
-    profilesFolder: config.profilesFolder ?? './auth',
+    profilesFolder: config.profilesFolder ?? defaultFolder,
     msalConfig: {
       auth: {
         clientId: '00000000402b5328',
